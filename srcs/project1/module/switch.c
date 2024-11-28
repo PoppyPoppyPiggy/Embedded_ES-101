@@ -97,7 +97,7 @@ irqreturn_t irq_handler(int irq, void *dev_id) {
 }
 
 // 모듈 초기화 함수
-static int __init switch_led_init(void) {
+static int switch_led_init(void) {
     int res, i;
 
     printk(KERN_INFO "Initializing switch_led module.\n");
@@ -133,7 +133,7 @@ fail_gpio:
 }
 
 // 모듈 종료 함수
-static void __exit switch_led_exit(void) {
+static void switch_led_exit(void) {
     int i;
 
     printk(KERN_INFO "Exiting switch_led module.\n");
