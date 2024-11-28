@@ -14,19 +14,21 @@ int irq_num[4];                // 스위치의 IRQ 번호 배열
 
 enum Mode { MODE_OFF, MODE_ALL, MODE_INDIVIDUAL, MODE_MANUAL };
 volatile enum Mode current_mode = MODE_OFF;
+volatile int manual_led_state[4] = {0, 0, 0, 0};  // 수동 모드 LED 상태
 
-// 인터럽트 핸들러 함수
-irqreturn_t irq_handler(int irq, void *dev_id) {
+// 첫 번째 인터럽트 핸들러 (SW[0], SW[1], SW[2] 처리: 모드 설정)
+irqreturn_t irq_handler_1(int irq, void *dev_id) {
     int i;
 
-    // 인터럽트가 발생한 스위치 확인
-    for (i = 0; i < 4; i++) {
+    // 스위치 확인 및 모드 전환
+    for (i = 0; i < 3; i++) {
         if (irq == irq_num[i]) {
             printk(KERN_INFO "Interrupt received on SW[%d]\n", i);
 
             switch (i) {
-                case 0: // 전체 모드: 모든 LED 켜졌다 꺼졌다 반복
+                case 0: // SW[0]: 전체 모드
                     current_mode = MODE_ALL;
+                    printk(KERN_INFO "MODE_ALL activated\n");
                     while (current_mode == MODE_ALL) {
                         for (i = 0; i < 4; i++) {
                             gpio_set_value(led[i], HIGH);
@@ -40,32 +42,48 @@ irqreturn_t irq_handler(int irq, void *dev_id) {
                     }
                     break;
 
-                case 1: // 개별 모드: LED가 하나씩 켜졌다 꺼지기
+                case 1: // SW[1]: 개별 모드
                     current_mode = MODE_INDIVIDUAL;
+                    printk(KERN_INFO "MODE_INDIVIDUAL activated\n");
                     while (current_mode == MODE_INDIVIDUAL) {
                         for (i = 0; i < 4; i++) {
                             gpio_set_value(led[i], HIGH);
                             msleep(2000);
                             gpio_set_value(led[i], LOW);
+                            msleep(500);
                             if (current_mode != MODE_INDIVIDUAL) break;
                         }
                     }
                     break;
 
-                case 2: // 수동 모드: 스위치를 누를 때마다 해당 LED 토글
+                case 2: // SW[2]: 수동 모드
                     current_mode = MODE_MANUAL;
-                    gpio_set_value(led[i], !gpio_get_value(led[i]));
-                    break;
-
-                case 3: // 리셋 모드: 모든 LED 끄기
-                    current_mode = MODE_OFF;
-                    for (i = 0; i < 4; i++) {
-                        gpio_set_value(led[i], LOW);
-                    }
+                    manual_led_state[i] = !manual_led_state[i]; // 해당 LED 토글
+                    gpio_set_value(led[i], manual_led_state[i]);
+                    printk(KERN_INFO "MODE_MANUAL: LED[%d] toggled to %d\n", i, manual_led_state[i]);
                     break;
             }
             break;
         }
+    }
+
+    return IRQ_HANDLED;
+}
+
+// 두 번째 인터럽트 핸들러 (SW[3] 처리: 리셋 모드)
+irqreturn_t irq_handler_2(int irq, void *dev_id) {
+    int i;
+
+    if (irq == irq_num[3]) {
+        printk(KERN_INFO "Interrupt received on SW[3]: Resetting all modes\n");
+
+        // 리셋 모드 처리: 모든 LED 끄기 및 모드 초기화
+        current_mode = MODE_OFF;
+        for (i = 0; i < 4; i++) {
+            gpio_set_value(led[i], LOW);
+        }
+
+        printk(KERN_INFO "All LEDs turned off and mode reset to MODE_OFF\n");
     }
 
     return IRQ_HANDLED;
@@ -105,7 +123,14 @@ static int __init led_module_init(void) {
             return irq_num[i];
         }
 
-        ret = request_irq(irq_num[i], irq_handler, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "gpio_irq", NULL);
+        if (i < 3) {
+            // 첫 번째 핸들러에 대해 인터럽트 요청 (SW[0], SW[1], SW[2])
+            ret = request_irq(irq_num[i], irq_handler_1, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "gpio_irq_1", NULL);
+        } else {
+            // 두 번째 핸들러에 대해 인터럽트 요청 (SW[3])
+            ret = request_irq(irq_num[i], irq_handler_2, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "gpio_irq_2", NULL);
+        }
+
         if (ret) {
             printk(KERN_ERR "Failed to request IRQ for SW[%d]\n", i);
             return ret;
@@ -134,4 +159,7 @@ static void __exit led_module_exit(void) {
 
 module_init(led_module_init);
 module_exit(led_module_exit);
+
 MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("LED Control Module with Two GPIO Interrupt Handlers for Mode Control and Reset.");
