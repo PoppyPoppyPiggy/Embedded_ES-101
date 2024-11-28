@@ -20,67 +20,86 @@ volatile int manual_led_state[4] = {0, 0, 0, 0}; // 수동 모드 상태
 
 static int kthread_function(void *arg) {
     int i = 0;
+
     printk(KERN_INFO "kthread_function started\n");
 
     while (!kthread_should_stop()) {
-        if (current_mode == MODE_ALL) { // 전체 모드
-            for (i = 0; i < 4; i++) {
-                gpio_set_value(led[i], HIGH);
-            }
-            ssleep(2);
-            for (i = 0; i < 4; i++) {
+        int led_state[4] = {LOW, LOW, LOW, LOW};
+
+        switch (current_mode) {
+            case MODE_ALL: // 전체 모드
+                for (i = 0; i < 4; i++) gpio_set_value(led[i], HIGH);
+                ssleep(2);
+                for (i = 0; i < 4; i++) gpio_set_value(led[i], LOW);
+                ssleep(2);
+                break;
+
+            case MODE_INDIVIDUAL: // 개별 모드
+                led_state[i] = HIGH;
+                update_leds(led_state);
+                ssleep(2);
                 gpio_set_value(led[i], LOW);
-            }
-            ssleep(2);
-        } else if (current_mode == MODE_INDIVIDUAL) { // 개별 모드
-            gpio_set_value(led[i], HIGH);
-            ssleep(2);
-            gpio_set_value(led[i], LOW);
-            i = (i + 1) % 4;
+                i = (i + 1) % 4;
+                break;
+
+            case MODE_MANUAL: // 수동 모드
+                // IRQ 플래그 확인 및 처리
+                for (i = 0; i < 4; i++) {
+                    if (irq_event_flag[i]) {
+                        irq_event_flag[i] = 0; // 플래그 초기화
+                        manual_led_state[i] = !manual_led_state[i];
+                        gpio_set_value(led[i], manual_led_state[i]);
+                        printk(KERN_INFO "Manual mode: LED[%d] toggled.\n", i);
+                    }
+                }
+                break;
+
+            case MODE_OFF: // 리셋 모드
+                // 모든 LED 끄기
+                update_leds((int[]){LOW, LOW, LOW, LOW});
+                ssleep(1);
+                break;
         }
     }
 
-    for (i = 0; i < 4; i++) {
-        gpio_set_value(led[i], LOW); // 종료 시 모든 LED 끄기
-    }
-
+    update_leds((int[]){LOW, LOW, LOW, LOW}); // 종료 시 모든 LED OFF
     printk(KERN_INFO "kthread_function stopped\n");
     return 0;
 }
 
+
+volatile int irq_event_flag[4] = {0, 0, 0, 0}; // 스위치별 IRQ 플래그
+
 irqreturn_t irq_handler(int irq, void *dev_id) {
     int i;
+
     for (i = 0; i < 4; i++) {
         if (irq == gpio_to_irq(sw[i])) {
-            switch (i) {
-                case 0: // 전체 모드
-                    current_mode = MODE_ALL;
-                    if (thread_id) kthread_stop(thread_id);
-                    thread_id = kthread_run(kthread_function, NULL, "led_thread");
+            printk(KERN_INFO "Interrupt received on SW[%d] in mode %d\n", i, current_mode);
+
+            // 스위치별 플래그 설정
+            irq_event_flag[i] = 1;
+
+            switch (current_mode) {
+                case MODE_ALL:
+                    printk(KERN_INFO "Handling IRQ in MODE_ALL\n");
+                    // 전체 모드에 필요한 추가 동작
                     break;
-                case 1: // 개별 모드
-                    current_mode = MODE_INDIVIDUAL;
-                    if (thread_id) kthread_stop(thread_id);
-                    thread_id = kthread_run(kthread_function, NULL, "led_thread");
+
+                case MODE_INDIVIDUAL:
+                    printk(KERN_INFO "Handling IRQ in MODE_INDIVIDUAL\n");
+                    // 개별 모드에서는 플래그만 설정
                     break;
-                case 2: // 수동 모드
-                    current_mode = MODE_MANUAL;
-                    if (thread_id) {
-                        kthread_stop(thread_id);
-                        thread_id = NULL;
-                    }
+
+                case MODE_MANUAL:
+                    printk(KERN_INFO "Handling IRQ in MODE_MANUAL\n");
                     manual_led_state[i] = !manual_led_state[i];
                     gpio_set_value(led[i], manual_led_state[i]);
                     break;
-                case 3: // 리셋 모드
-                    current_mode = MODE_OFF;
-                    if (thread_id) {
-                        kthread_stop(thread_id);
-                        thread_id = NULL;
-                    }
-                    for (i = 0; i < 4; i++) {
-                        gpio_set_value(led[i], LOW);
-                    }
+
+                case MODE_OFF:
+                    printk(KERN_INFO "Handling IRQ in MODE_OFF\n");
+                    // 리셋 또는 OFF 상태에서는 필요한 동작 수행
                     break;
             }
             break;
