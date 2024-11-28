@@ -1,10 +1,8 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/interrupt.h>
 #include <linux/gpio.h>
-#include <linux/timer.h>
-#include <linux/kthread.h>
+#include <linux/interrupt.h>
 #include <linux/delay.h>
 
 #define HIGH 1
@@ -12,124 +10,64 @@
 
 int led[4] = {23, 24, 25, 1};  // LED GPIO 번호
 int sw[4] = {4, 17, 27, 22};   // 스위치 GPIO 번호
-int irq_num[4];  // 스위치의 IRQ 번호 배열
+int irq_num[4];                // 스위치의 IRQ 번호 배열
 
 enum Mode { MODE_OFF, MODE_ALL, MODE_INDIVIDUAL, MODE_MANUAL };
 volatile enum Mode current_mode = MODE_OFF;
-volatile int manual_led_state[4] = {0, 0, 0, 0};  // 수동 모드 LED 상태
-
-static struct timer_list led_timer;
-struct task_struct *thread_id = NULL;
-
-DEFINE_SPINLOCK(mode_lock);  // 모드 변경 보호용 스핀락
-
-// 타이머 콜백 함수: 전체 모드 및 개별 모드 처리
-static void timer_cb(struct timer_list *timer) {
-    int i;
-    static int current_led = 0;
-    static int state = LOW;
-
-    spin_lock(&mode_lock);  // 모드 변경 보호용 락
-
-    if (current_mode == MODE_ALL) {
-        state = !state;  // LED 상태 반전
-        for (i = 0; i < 4; i++) {
-            gpio_set_value(led[i], state);
-        }
-    } else if (current_mode == MODE_INDIVIDUAL) {
-        for (i = 0; i < 4; i++) {
-            gpio_set_value(led[i], LOW);
-        }
-        gpio_set_value(led[current_led], HIGH);
-        current_led = (current_led + 1) % 4;
-    }
-
-    mod_timer(&led_timer, jiffies + HZ * 2);  // 2초 후 타이머 재설정
-
-    spin_unlock(&mode_lock);  // 락 해제
-}
-
-// 수동 모드에서 LED 상태를 갱신하는 함수
-static int manual_mode_thread(void *arg) {
-    while (!kthread_should_stop()) {
-        int i;
-        spin_lock(&mode_lock);
-        for (i = 0; i < 4; i++) {
-            gpio_set_value(led[i], manual_led_state[i]);
-        }
-        spin_unlock(&mode_lock);
-        msleep(100);
-    }
-    return 0;
-}
-
-// 리셋 모드 함수
-static void reset_mode(void) {
-    int i;
-
-    printk(KERN_INFO "Reset mode activated: Stopping all activities and turning off all LEDs.\n");
-
-    // 현재 실행 중인 스레드 및 타이머 중지
-    if (thread_id) {
-        kthread_stop(thread_id);
-        thread_id = NULL;
-    }
-    del_timer_sync(&led_timer);
-
-    // 모든 LED 끄기
-    for (i = 0; i < 4; i++) {
-        gpio_set_value(led[i], LOW);
-    }
-
-    current_mode = MODE_OFF;  // 모드를 OFF로 설정
-}
 
 // 인터럽트 핸들러 함수
 irqreturn_t irq_handler(int irq, void *dev_id) {
     int i;
 
-    spin_lock(&mode_lock);
-
+    // 인터럽트가 발생한 스위치 확인
     for (i = 0; i < 4; i++) {
         if (irq == irq_num[i]) {
             printk(KERN_INFO "Interrupt received on SW[%d]\n", i);
 
-            // 모드 변경 전 기존 실행 중인 스레드 및 타이머 중지
-            if (thread_id) {
-                kthread_stop(thread_id);
-                thread_id = NULL;
-            }
-            del_timer_sync(&led_timer);
-
-            // 모드 설정
             switch (i) {
-                case 0: // 전체 모드
+                case 0: // 전체 모드: 모든 LED 켜졌다 꺼졌다 반복
                     current_mode = MODE_ALL;
-                    mod_timer(&led_timer, jiffies + HZ * 2);
-                    break;
-
-                case 1: // 개별 모드
-                    current_mode = MODE_INDIVIDUAL;
-                    mod_timer(&led_timer, jiffies + HZ * 2);
-                    break;
-
-                case 2: // 수동 모드
-                    current_mode = MODE_MANUAL;
-                    manual_led_state[i] = !manual_led_state[i];
-                    if (!thread_id) {
-                        thread_id = kthread_run(manual_mode_thread, NULL, "manual_mode_thread");
+                    while (current_mode == MODE_ALL) {
+                        for (i = 0; i < 4; i++) {
+                            gpio_set_value(led[i], HIGH);
+                        }
+                        msleep(2000);
+                        for (i = 0; i < 4; i++) {
+                            gpio_set_value(led[i], LOW);
+                        }
+                        msleep(2000);
+                        if (current_mode != MODE_ALL) break;
                     }
                     break;
 
-                case 3: // 리셋 모드
-                    reset_mode();  // 리셋 모드 함수 호출
+                case 1: // 개별 모드: LED가 하나씩 켜졌다 꺼지기
+                    current_mode = MODE_INDIVIDUAL;
+                    while (current_mode == MODE_INDIVIDUAL) {
+                        for (i = 0; i < 4; i++) {
+                            gpio_set_value(led[i], HIGH);
+                            msleep(2000);
+                            gpio_set_value(led[i], LOW);
+                            if (current_mode != MODE_INDIVIDUAL) break;
+                        }
+                    }
+                    break;
+
+                case 2: // 수동 모드: 스위치를 누를 때마다 해당 LED 토글
+                    current_mode = MODE_MANUAL;
+                    gpio_set_value(led[i], !gpio_get_value(led[i]));
+                    break;
+
+                case 3: // 리셋 모드: 모든 LED 끄기
+                    current_mode = MODE_OFF;
+                    for (i = 0; i < 4; i++) {
+                        gpio_set_value(led[i], LOW);
+                    }
                     break;
             }
             break;
         }
     }
 
-    spin_unlock(&mode_lock);
     return IRQ_HANDLED;
 }
 
@@ -146,6 +84,7 @@ static int __init led_module_init(void) {
             return -EINVAL;
         }
 
+        // LED GPIO 요청 및 초기화
         ret = gpio_request(led[i], "LED");
         if (ret) {
             printk(KERN_ERR "Failed to request GPIO for LED[%d]\n", i);
@@ -153,6 +92,7 @@ static int __init led_module_init(void) {
         }
         gpio_direction_output(led[i], LOW);  // 초기 LED 상태를 OFF로 설정
 
+        // 스위치 GPIO 요청 및 인터럽트 설정
         ret = gpio_request(sw[i], "SW");
         if (ret) {
             printk(KERN_ERR "Failed to request GPIO for SW[%d]\n", i);
@@ -172,9 +112,6 @@ static int __init led_module_init(void) {
         }
     }
 
-    // 타이머 설정
-    timer_setup(&led_timer, timer_cb, 0);
-
     printk(KERN_INFO "LED module initialized successfully.\n");
     return 0;
 }
@@ -184,14 +121,6 @@ static void __exit led_module_exit(void) {
     int i;
 
     printk(KERN_INFO "Exiting LED module\n");
-
-    // 타이머 제거
-    del_timer_sync(&led_timer);
-
-    // 스레드 종료
-    if (thread_id) {
-        kthread_stop(thread_id);
-    }
 
     // IRQ 및 GPIO 해제
     for (i = 0; i < 4; i++) {
@@ -205,7 +134,4 @@ static void __exit led_module_exit(void) {
 
 module_init(led_module_init);
 module_exit(led_module_exit);
-
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Your Name");
-MODULE_DESCRIPTION("LED Control Module with GPIO and Interrupt Handling.");
