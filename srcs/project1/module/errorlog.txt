@@ -1,4 +1,6 @@
 //GPIO 상태 확인
-
 cat /sys/kernel/debug/gpio
 cat /proc/interrupts | grep gpio
+
+//로그 확인
+dmesg | tail -n 50
