@@ -150,6 +150,3 @@ static void switch_led_exit(void) {
 module_init(switch_led_init);
 module_exit(switch_led_exit);
 
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Your Name");
-MODULE_DESCRIPTION("Switch and LED control module");
