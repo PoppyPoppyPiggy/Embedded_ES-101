@@ -158,7 +158,5 @@ static void led_kthread_exit(void) {
 
 module_init(led_kthread_init);
 module_exit(led_kthread_exit);
-
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Your Name");
-MODULE_DESCRIPTION("Simple LED control module");
+
