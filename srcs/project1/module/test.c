@@ -63,6 +63,27 @@ static int manual_mode_thread(void *arg) {
     return 0;
 }
 
+// 리셋 모드 함수
+static void reset_mode(void) {
+    int i;
+
+    printk(KERN_INFO "Reset mode activated: Stopping all activities and turning off all LEDs.\n");
+
+    // 현재 실행 중인 스레드 및 타이머 중지
+    if (thread_id) {
+        kthread_stop(thread_id);
+        thread_id = NULL;
+    }
+    del_timer_sync(&led_timer);
+
+    // 모든 LED 끄기
+    for (i = 0; i < 4; i++) {
+        gpio_set_value(led[i], LOW);
+    }
+
+    current_mode = MODE_OFF;  // 모드를 OFF로 설정
+}
+
 // 인터럽트 핸들러 함수
 irqreturn_t irq_handler(int irq, void *dev_id) {
     int i;
@@ -73,7 +94,7 @@ irqreturn_t irq_handler(int irq, void *dev_id) {
         if (irq == irq_num[i]) {
             printk(KERN_INFO "Interrupt received on SW[%d]\n", i);
 
-            // 기존 실행 중인 스레드 종료 및 타이머 중지
+            // 모드 변경 전 기존 실행 중인 스레드 및 타이머 중지
             if (thread_id) {
                 kthread_stop(thread_id);
                 thread_id = NULL;
@@ -101,10 +122,7 @@ irqreturn_t irq_handler(int irq, void *dev_id) {
                     break;
 
                 case 3: // 리셋 모드
-                    current_mode = MODE_OFF;
-                    for (i = 0; i < 4; i++) {
-                        gpio_set_value(led[i], LOW);
-                    }
+                    reset_mode();  // 리셋 모드 함수 호출
                     break;
             }
             break;
@@ -187,4 +205,7 @@ static void __exit led_module_exit(void) {
 
 module_init(led_module_init);
 module_exit(led_module_exit);
+
 MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("LED Control Module with GPIO and Interrupt Handling.");
