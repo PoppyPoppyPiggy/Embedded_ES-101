@@ -3,6 +3,7 @@
 #include <linux/kernel.h>
 #include <linux/gpio.h>
 #include <linux/interrupt.h>
+#include <linux/kthread.h>
 #include <linux/delay.h>
 
 #define HIGH 1
@@ -14,71 +15,100 @@ int irq_num[4];                // 스위치의 IRQ 번호 배열
 
 enum Mode { MODE_OFF, MODE_ALL, MODE_INDIVIDUAL, MODE_MANUAL };
 volatile enum Mode current_mode = MODE_OFF;
-volatile int manual_led_state[4] = {0, 0, 0, 0};  // 수동 모드 LED 상태
 
-volatile bool reset_flag = false; // 리셋 요청 플래그
+struct task_struct *main_thread_id = NULL;     // 항상 동작하는 메인 스레드 구조체 포인터
+struct task_struct *temp_thread_id = NULL;     // 임시 스레드 구조체 포인터
 
-// 첫 번째 인터럽트 핸들러 (SW[0], SW[1], SW[2] 처리: 모드 설정)
-irqreturn_t irq_handler_1(int irq, void *dev_id) {
-    int i;
+// 임시 스레드 함수: LED 제어
+static int temp_thread_function(void *arg) {
+    int i = 0;
 
-    if (reset_flag) {
-        return IRQ_HANDLED;  // 리셋이 요청되었으면 즉시 반환
+    printk(KERN_INFO "Temporary thread started\n");
+
+    while (!kthread_should_stop()) {
+        switch (current_mode) {
+            case MODE_ALL: // 전체 모드: 모든 LED를 2초 간격으로 켜고 끄기
+                for (i = 0; i < 4; i++) {
+                    gpio_set_value(led[i], HIGH);
+                }
+                msleep(2000);
+                for (i = 0; i < 4; i++) {
+                    gpio_set_value(led[i], LOW);
+                }
+                msleep(2000);
+                break;
+
+            case MODE_INDIVIDUAL: // 개별 모드: LED를 순차적으로 2초 간격으로 켜기
+                gpio_set_value(led[i], HIGH);
+                msleep(2000);
+                gpio_set_value(led[i], LOW);
+                i = (i + 1) % 4;  // 다음 LED로 이동
+                break;
+
+            case MODE_MANUAL: // 수동 모드는 스레드에서 처리하지 않음
+            case MODE_OFF:    // 리셋 모드는 LED를 끈 상태 유지
+                msleep(100);  // 0.1초 대기
+                break;
+        }
     }
 
-    // 스위치 확인 및 모드 전환
-    for (i = 0; i < 3; i++) {
+    // 스레드 종료 시 모든 LED 끄기
+    for (i = 0; i < 4; i++) {
+        gpio_set_value(led[i], LOW);
+    }
+
+    printk(KERN_INFO "Temporary thread stopping\n");
+    return 0;
+}
+
+// 인터럽트 핸들러 함수
+irqreturn_t irq_handler(int irq, void *dev_id) {
+    int i;
+
+    for (i = 0; i < 4; i++) {
         if (irq == irq_num[i]) {
             printk(KERN_INFO "Interrupt received on SW[%d]\n", i);
 
+            // 현재 실행 중인 임시 스레드가 있으면 종료
+            if (temp_thread_id) {
+                kthread_stop(temp_thread_id);
+                temp_thread_id = NULL;
+            }
+
+            // 모드 설정 및 임시 스레드 생성
             switch (i) {
                 case 0: // SW[0]: 전체 모드
                     current_mode = MODE_ALL;
-                    printk(KERN_INFO "MODE_ALL activated\n");
-                    while (current_mode == MODE_ALL) {
-                        if (reset_flag) {
-                            return IRQ_HANDLED;  // 리셋 플래그가 설정되면 즉시 중단
-                        }
-                        for (i = 0; i < 4; i++) {
-                            gpio_set_value(led[i], HIGH);
-                        }
-                        msleep(2000);
-                        if (reset_flag) {
-                            return IRQ_HANDLED;  // 리셋 플래그가 설정되면 즉시 중단
-                        }
-                        for (i = 0; i < 4; i++) {
-                            gpio_set_value(led[i], LOW);
-                        }
-                        msleep(2000);
+                    temp_thread_id = kthread_run(temp_thread_function, NULL, "temp_thread");
+                    if (IS_ERR(temp_thread_id)) {
+                        printk(KERN_ERR "Failed to create temp_thread for MODE_ALL\n");
+                        temp_thread_id = NULL;
                     }
                     break;
 
                 case 1: // SW[1]: 개별 모드
                     current_mode = MODE_INDIVIDUAL;
-                    printk(KERN_INFO "MODE_INDIVIDUAL activated\n");
-                    while (current_mode == MODE_INDIVIDUAL) {
-                        if (reset_flag) {
-                            return IRQ_HANDLED;  // 리셋 플래그가 설정되면 즉시 중단
-                        }
-                        for (i = 0; i < 4; i++) {
-                            gpio_set_value(led[i], HIGH);
-                            msleep(2000);
-                            if (reset_flag) {
-                                return IRQ_HANDLED;  // 리셋 플래그가 설정되면 즉시 중단
-                            }
-                            gpio_set_value(led[i], LOW);
-                            msleep(500);
-                        }
+                    temp_thread_id = kthread_run(temp_thread_function, NULL, "temp_thread");
+                    if (IS_ERR(temp_thread_id)) {
+                        printk(KERN_ERR "Failed to create temp_thread for MODE_INDIVIDUAL\n");
+                        temp_thread_id = NULL;
                     }
                     break;
 
                 case 2: // SW[2]: 수동 모드
                     current_mode = MODE_MANUAL;
-                    manual_led_state[i] = !manual_led_state[i]; // 해당 LED 토글
-                    gpio_set_value(led[i], manual_led_state[i]);
-                    printk(KERN_INFO "MODE_MANUAL: LED[%d] toggled to %d\n", i, manual_led_state[i]);
+                    gpio_set_value(led[i], !gpio_get_value(led[i]));  // 해당 LED 상태 토글
+                    break;
+
+                case 3: // SW[3]: 리셋 모드
+                    current_mode = MODE_OFF;
+                    // 모든 LED 끄기
+                    for (i = 0; i < 4; i++) {
+                        gpio_set_value(led[i], LOW);
+                    }
                     break;
             }
+
             break;
         }
     }
@@ -86,28 +116,17 @@ irqreturn_t irq_handler_1(int irq, void *dev_id) {
     return IRQ_HANDLED;
 }
 
-// 두 번째 인터럽트 핸들러 (SW[3] 처리: 리셋 모드)
-irqreturn_t irq_handler_2(int irq, void *dev_id) {
-    int i;
+// 메인 스레드 함수: 주기적으로 시스템 상태 점검 (필요에 따라 기능 추가 가능)
+static int main_thread_function(void *arg) {
+    printk(KERN_INFO "Main thread started\n");
 
-    if (irq == irq_num[3]) {
-        printk(KERN_INFO "Interrupt received on SW[3]: Resetting all modes\n");
-
-        // 리셋 모드 처리: 모든 LED 끄기 및 모드 초기화
-        reset_flag = true;  // 리셋 플래그 설정
-        current_mode = MODE_OFF;
-
-        // 모든 LED 끄기
-        for (i = 0; i < 4; i++) {
-            gpio_set_value(led[i], LOW);
-        }
-
-        printk(KERN_INFO "All LEDs turned off and mode reset to MODE_OFF\n");
-
-        reset_flag = false;  // 리셋 완료 후 플래그 해제
+    while (!kthread_should_stop()) {
+        msleep(1000);  // 주기적으로 1초마다 상태 확인
+        // 메인 스레드는 필요시 다른 작업을 추가로 수행 가능
     }
 
-    return IRQ_HANDLED;
+    printk(KERN_INFO "Main thread stopping\n");
+    return 0;
 }
 
 // 모듈 초기화 함수
@@ -144,18 +163,20 @@ static int __init led_module_init(void) {
             return irq_num[i];
         }
 
-        if (i < 3) {
-            // 첫 번째 핸들러에 대해 인터럽트 요청 (SW[0], SW[1], SW[2])
-            ret = request_irq(irq_num[i], irq_handler_1, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "gpio_irq_1", NULL);
-        } else {
-            // 두 번째 핸들러에 대해 인터럽트 요청 (SW[3])
-            ret = request_irq(irq_num[i], irq_handler_2, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "gpio_irq_2", NULL);
-        }
-
+        // 모든 스위치에 대해 동일한 인터럽트 핸들러 설정
+        ret = request_irq(irq_num[i], irq_handler, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "gpio_irq", NULL);
         if (ret) {
             printk(KERN_ERR "Failed to request IRQ for SW[%d]\n", i);
             return ret;
         }
+    }
+
+    // 메인 스레드 생성
+    main_thread_id = kthread_run(main_thread_function, NULL, "main_thread");
+    if (IS_ERR(main_thread_id)) {
+        printk(KERN_ERR "Failed to create main_thread\n");
+        main_thread_id = NULL;
+        return PTR_ERR(main_thread_id);
     }
 
     printk(KERN_INFO "LED module initialized successfully.\n");
@@ -167,6 +188,18 @@ static void __exit led_module_exit(void) {
     int i;
 
     printk(KERN_INFO "Exiting LED module\n");
+
+    // 실행 중인 메인 스레드가 있으면 종료
+    if (main_thread_id) {
+        kthread_stop(main_thread_id);
+        main_thread_id = NULL;
+    }
+
+    // 실행 중인 임시 스레드가 있으면 종료
+    if (temp_thread_id) {
+        kthread_stop(temp_thread_id);
+        temp_thread_id = NULL;
+    }
 
     // IRQ 및 GPIO 해제
     for (i = 0; i < 4; i++) {
@@ -180,7 +213,4 @@ static void __exit led_module_exit(void) {
 
 module_init(led_module_init);
 module_exit(led_module_exit);
-
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Your Name");
-MODULE_DESCRIPTION("LED Control Module with Reset Handling for Immediate Mode Reset.");
