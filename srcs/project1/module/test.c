@@ -16,9 +16,15 @@ enum Mode { MODE_OFF, MODE_ALL, MODE_INDIVIDUAL, MODE_MANUAL };
 volatile enum Mode current_mode = MODE_OFF;
 volatile int manual_led_state[4] = {0, 0, 0, 0};  // 수동 모드 LED 상태
 
+volatile bool reset_flag = false; // 리셋 요청 플래그
+
 // 첫 번째 인터럽트 핸들러 (SW[0], SW[1], SW[2] 처리: 모드 설정)
 irqreturn_t irq_handler_1(int irq, void *dev_id) {
     int i;
+
+    if (reset_flag) {
+        return IRQ_HANDLED;  // 리셋이 요청되었으면 즉시 반환
+    }
 
     // 스위치 확인 및 모드 전환
     for (i = 0; i < 3; i++) {
@@ -30,15 +36,20 @@ irqreturn_t irq_handler_1(int irq, void *dev_id) {
                     current_mode = MODE_ALL;
                     printk(KERN_INFO "MODE_ALL activated\n");
                     while (current_mode == MODE_ALL) {
+                        if (reset_flag) {
+                            return IRQ_HANDLED;  // 리셋 플래그가 설정되면 즉시 중단
+                        }
                         for (i = 0; i < 4; i++) {
                             gpio_set_value(led[i], HIGH);
                         }
                         msleep(2000);
+                        if (reset_flag) {
+                            return IRQ_HANDLED;  // 리셋 플래그가 설정되면 즉시 중단
+                        }
                         for (i = 0; i < 4; i++) {
                             gpio_set_value(led[i], LOW);
                         }
                         msleep(2000);
-                        if (current_mode != MODE_ALL) break;
                     }
                     break;
 
@@ -46,12 +57,17 @@ irqreturn_t irq_handler_1(int irq, void *dev_id) {
                     current_mode = MODE_INDIVIDUAL;
                     printk(KERN_INFO "MODE_INDIVIDUAL activated\n");
                     while (current_mode == MODE_INDIVIDUAL) {
+                        if (reset_flag) {
+                            return IRQ_HANDLED;  // 리셋 플래그가 설정되면 즉시 중단
+                        }
                         for (i = 0; i < 4; i++) {
                             gpio_set_value(led[i], HIGH);
                             msleep(2000);
+                            if (reset_flag) {
+                                return IRQ_HANDLED;  // 리셋 플래그가 설정되면 즉시 중단
+                            }
                             gpio_set_value(led[i], LOW);
                             msleep(500);
-                            if (current_mode != MODE_INDIVIDUAL) break;
                         }
                     }
                     break;
@@ -78,12 +94,17 @@ irqreturn_t irq_handler_2(int irq, void *dev_id) {
         printk(KERN_INFO "Interrupt received on SW[3]: Resetting all modes\n");
 
         // 리셋 모드 처리: 모든 LED 끄기 및 모드 초기화
+        reset_flag = true;  // 리셋 플래그 설정
         current_mode = MODE_OFF;
+
+        // 모든 LED 끄기
         for (i = 0; i < 4; i++) {
             gpio_set_value(led[i], LOW);
         }
 
         printk(KERN_INFO "All LEDs turned off and mode reset to MODE_OFF\n");
+
+        reset_flag = false;  // 리셋 완료 후 플래그 해제
     }
 
     return IRQ_HANDLED;
@@ -162,4 +183,4 @@ module_exit(led_module_exit);
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Your Name");
-MODULE_DESCRIPTION("LED Control Module with Two GPIO Interrupt Handlers for Mode Control and Reset.");
+MODULE_DESCRIPTION("LED Control Module with Reset Handling for Immediate Mode Reset.");
