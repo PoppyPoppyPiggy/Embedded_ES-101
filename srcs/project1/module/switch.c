@@ -5,135 +5,151 @@
 #include <linux/kthread.h>
 #include <linux/delay.h>
 #include <linux/gpio.h>
-#include <linux/timer.h>
 
-#define HIGH	1
-#define LOW	0
+#define HIGH 1
+#define LOW 0
 
+// GPIO 번호 정의
 int sw[4] = {4, 17, 27, 22};
 int led[4] = {23, 24, 25, 1};
 
-struct task_struct *thread_id = NULL;
-static struct timer_list timer;
-int flag = 0;
+// 상태 변수
+enum Mode { MODE_OFF, MODE_ALL, MODE_INDIVIDUAL, MODE_MANUAL };
+volatile enum Mode current_mode = MODE_OFF;
+volatile int manual_led_state[4] = {0, 0, 0, 0}; // 수동 모드 LED 상태
 
-// 커널 스레드 함수
-static int kthread_function(void *arg) {
-    char value = 1, temp = 0;
-    int ret, i;
-    printk(KERN_INFO "kthread_function started!\n");
-    while (!kthread_should_stop()) {
-        temp = value;
-        for (i = 0; i < 4; i++) {
-            if (temp & 0x01)
-                ret = gpio_direction_output(led[i], HIGH);
-            else
-                ret = gpio_direction_output(led[i], LOW);
-            temp = temp >> 1;
-        }
-        value = value << 1;
-        if (value == 0x10)
-            value = 0x01;
-        ssleep(1);
+struct task_struct *thread_id = NULL;
+
+// LED 상태 업데이트 함수
+void update_leds(int state[]) {
+    int i;
+    for (i = 0; i < 4; i++) {
+        gpio_set_value(led[i], state[i]);
     }
-    printk(KERN_INFO "kthread_should_stop called!\n");
+}
+
+// 전체 모드 스레드
+static int mode_all_function(void *arg) {
+    int state = LOW;
+    while (!kthread_should_stop()) {
+        int led_state[4] = {state, state, state, state};
+        update_leds(led_state);
+        state = !state;
+        ssleep(2); // 2초 간격
+    }
     return 0;
 }
 
-// 타이머 콜백 함수
-static void timer_cb(struct timer_list *timer) {
-    int ret, i;
-    printk(KERN_INFO "timer callback function!\n");
-    if (flag == 0) {
-        for (i = 0; i < 4; i++) {
-            ret = gpio_direction_output(led[i], HIGH);
-        }
-        flag = 1;
-    } else {
-        for (i = 0; i < 4; i++) {
-            ret = gpio_direction_output(led[i], LOW);
-        }
-        flag = 0;
+// 개별 모드 스레드
+static int mode_individual_function(void *arg) {
+    int i = 0;
+    while (!kthread_should_stop()) {
+        int led_state[4] = {LOW, LOW, LOW, LOW};
+        led_state[i] = HIGH; // 하나씩만 켜기
+        update_leds(led_state);
+        i = (i + 1) % 4;
+        ssleep(2); // 2초 간격
     }
-    timer->expires = jiffies + HZ * 2;
-    add_timer(timer);
+    return 0;
 }
 
 // 인터럽트 핸들러
 irqreturn_t irq_handler(int irq, void *dev_id) {
-    printk(KERN_INFO "Interrupt occurred: %d\n", irq);
-    if (irq == gpio_to_irq(sw[0])) { // Only handle interrupt for sw[0]
-        if (thread_id == NULL) {
-            // 스레드가 실행 중이지 않으면 실행
-            thread_id = kthread_run(kthread_function, NULL, "led_thread");
-            if (IS_ERR(thread_id)) {
-                printk(KERN_ERR "Failed to create kthread\n");
-                thread_id = NULL;
+    int i;
+    for (i = 0; i < 4; i++) {
+        if (irq == gpio_to_irq(sw[i])) {
+            switch (i) {
+                case 0: // 전체 모드
+                    if (current_mode != MODE_ALL) {
+                        current_mode = MODE_ALL;
+                        if (thread_id) kthread_stop(thread_id);
+                        thread_id = kthread_run(mode_all_function, NULL, "mode_all");
+                    }
+                    break;
+                case 1: // 개별 모드
+                    if (current_mode != MODE_INDIVIDUAL) {
+                        current_mode = MODE_INDIVIDUAL;
+                        if (thread_id) kthread_stop(thread_id);
+                        thread_id = kthread_run(mode_individual_function, NULL, "mode_individual");
+                    }
+                    break;
+                case 2: // 수동 모드
+                    if (current_mode == MODE_MANUAL) {
+                        manual_led_state[i] = !manual_led_state[i];
+                        gpio_set_value(led[i], manual_led_state[i]);
+                    } else {
+                        current_mode = MODE_MANUAL;
+                        if (thread_id) kthread_stop(thread_id);
+                        update_leds((int[]){LOW, LOW, LOW, LOW});
+                    }
+                    break;
+                case 3: // 리셋 모드
+                    if (thread_id) kthread_stop(thread_id);
+                    thread_id = NULL;
+                    current_mode = MODE_OFF;
+                    update_leds((int[]){LOW, LOW, LOW, LOW});
+                    break;
             }
-        } else {
-            // 스레드가 이미 실행 중이면 중지
-            kthread_stop(thread_id);
-            thread_id = NULL;
+            break;
         }
-    } else if (irq == gpio_to_irq(sw[1])) { // Handle interrupt for sw[1]
-        printk(KERN_INFO "Starting timer for sw[1] interrupt\n");
-        timer_setup(&timer, timer_cb, 0);
-        timer.expires = jiffies + HZ * 2;
-        add_timer(&timer);
     }
     return IRQ_HANDLED;
 }
 
 // 모듈 초기화 함수
-static int switch_interrupt_init(void) {
+static int __init switch_led_init(void) {
     int res, i;
-    printk(KERN_INFO "switch_interrupt_init!\n");
-    // GPIO 요청 및 인터럽트 설정
+
+    printk(KERN_INFO "Initializing switch_led module.\n");
+
+    // GPIO 요청 및 초기화
     for (i = 0; i < 4; i++) {
         res = gpio_request(sw[i], "sw");
-        if (res < 0) {
-            printk(KERN_INFO "gpio_request failed for sw[%d]!\n", i);
-            return res;
+        if (res) {
+            printk(KERN_ERR "Failed to request GPIO %d for sw[%d]\n", sw[i], i);
+            goto fail_gpio;
         }
-        res = request_irq(gpio_to_irq(sw[i]), (irq_handler_t)irq_handler, IRQF_TRIGGER_RISING, "IRQ", NULL);
-        if (res < 0) {
-            printk(KERN_INFO "request_irq failed for sw[%d]!\n", i);
-            return res;
+        res = request_irq(gpio_to_irq(sw[i]), irq_handler, IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, "gpio_irq", NULL);
+        if (res) {
+            printk(KERN_ERR "Failed to request IRQ for sw[%d]\n", i);
+            goto fail_irq;
         }
-    }
-    // LED GPIO 요청
-    for (i = 0; i < 4; i++) {
-        res = gpio_request(led[i], "LED");
-        if (res < 0) {
-            printk(KERN_INFO "gpio_request failed for led[%d]!\n", i);
-            return res;
+        res = gpio_request(led[i], "led");
+        if (res) {
+            printk(KERN_ERR "Failed to request GPIO %d for led[%d]\n", led[i], i);
+            goto fail_led;
         }
+        gpio_direction_output(led[i], LOW); // 초기 LED OFF
     }
     return 0;
+
+fail_led:
+    for (i = 0; i < 4; i++) gpio_free(led[i]);
+fail_irq:
+    for (i = 0; i < 4; i++) free_irq(gpio_to_irq(sw[i]), NULL);
+fail_gpio:
+    for (i = 0; i < 4; i++) gpio_free(sw[i]);
+    return res;
 }
 
 // 모듈 종료 함수
-static void switch_interrupt_exit(void) {
+static void __exit switch_led_exit(void) {
     int i;
-    printk(KERN_INFO "switch_interrupt_exit!\n");
-    // 스레드 중지
-    if (thread_id) {
-        kthread_stop(thread_id);
-        thread_id = NULL;
-    }
-    // 타이머 제거
-    del_timer(&timer);
-    // 인터럽트 해제 및 GPIO 해제
+
+    printk(KERN_INFO "Exiting switch_led module.\n");
+
+    if (thread_id) kthread_stop(thread_id);
+
     for (i = 0; i < 4; i++) {
         free_irq(gpio_to_irq(sw[i]), NULL);
         gpio_free(sw[i]);
-    }
-    // LED GPIO 해제
-    for (i = 0; i < 4; i++) {
         gpio_free(led[i]);
     }
 }
 
-module_init(switch_interrupt_init);
-module_exit(switch_interrupt_exit);
+module_init(switch_led_init);
+module_exit(switch_led_exit);
+
 MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("Switch and LED control module");
