@@ -49,41 +49,8 @@ irqreturn_t switch_irq_handler(int irq, void *dev_id) {
     }
 
     return IRQ_HANDLED;
+
 }
-
-static int __init pj1_module_init(void) {
-    int i;
-
-    printk(KERN_INFO "Initializing module...\n");
-
-    // LED와 스위치 GPIO 초기화
-    for (i = 0; i < 4; i++) {
-        if (gpio_request(led[i], "LED") || gpio_direction_output(led[i], LOW)) {
-            printk(KERN_ALERT "Failed to initialize LED GPIO %d\n", led[i]);
-            return -1;
-        }
-        if (gpio_request(sw[i], "Switch") || gpio_direction_input(sw[i])) {
-            printk(KERN_ALERT "Failed to initialize Switch GPIO %d\n", sw[i]);
-            return -1;
-        }
-    }
-
-    // 스위치에 인터럽트 요청
-    for (i = 0; i < 4; i++) {
-        int irq = gpio_to_irq(sw[i]);
-        if (request_irq(irq, switch_irq_handler, IRQF_TRIGGER_RISING, "switch_irq", &sw[i])) {
-            printk(KERN_ALERT "Failed to request IRQ for switch %d\n", sw[i]);
-            return -1;
-        }
-    }
-    // 타이머 설정
-    timer_setup(&timer, timer_callback, 0);
-    // 모드 초기화
-    mod = 3;  
-
-    return 0;
-}
-
 
 // 타이머 콜백 함수
 static void timer_callback(struct timer_list *t) {
@@ -115,6 +82,38 @@ static void timer_callback(struct timer_list *t) {
 }
 
 
+static int pj1_module_init(void) {
+    int i;
+
+    printk(KERN_INFO "Initializing module...\n");
+
+    // LED와 스위치 GPIO 초기화
+    for (i = 0; i < 4; i++) {
+        if (gpio_request(led[i], "LED") || gpio_direction_output(led[i], LOW)) {
+            printk(KERN_ALERT "Failed to initialize LED GPIO %d\n", led[i]);
+            return -1;
+        }
+        if (gpio_request(sw[i], "Switch") || gpio_direction_input(sw[i])) {
+            printk(KERN_ALERT "Failed to initialize Switch GPIO %d\n", sw[i]);
+            return -1;
+        }
+    }
+
+    // 스위치에 인터럽트 요청
+    for (i = 0; i < 4; i++) {
+        int irq = gpio_to_irq(sw[i]);
+        if (request_irq(irq, switch_irq_handler, IRQF_TRIGGER_RISING, "switch_irq", &sw[i])) {
+            printk(KERN_ALERT "Failed to request IRQ for switch %d\n", sw[i]);
+            return -1;
+        }
+    }
+    // 타이머 설정
+    timer_setup(&timer, timer_callback, 0);
+    // 모드 초기화
+    mod = 3;  
+
+    return 0;
+}
 
 
 
