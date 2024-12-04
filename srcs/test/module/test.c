@@ -20,6 +20,37 @@ static struct timer_list timer; //timer 구조체
 // 2: 수동 모드: 스위치 눌 때마다 해당 LED를 수동으로 켜거나 끄는 모드
 // 3: 모드 리셋: LED 동작 중지 및 모드 초기화
 
+// 스위치 인터럽트 핸들러
+irqreturn_t switch_irq_handler(int irq, void *dev_id) {
+    int switch_mod = *(int *)dev_id;
+
+    switch (switch_mod) {
+        case 0:
+            mod = 0;  
+            break;
+        case 1:
+            mod = 1;  // 모드 1으로 전환
+            break;
+        case 2:
+            mod = 2;  // 수동 모드
+            break;
+        case 3:
+            mod = 0;  // 모드 리셋 (모두 초기화)
+            break;
+    }
+
+    if (mod == 2) {
+        int led_index = irq - gpio_to_irq(sw[0]); // 스위치 인덱스를 통해 LED 인덱스를 계산
+        if (gpio_get_value(led[led_index]) == LOW) {
+            gpio_set_value(led[led_index], HIGH);  // LED 켜기
+        } else {
+            gpio_set_value(led[led_index], LOW);   // LED 끄기
+        }
+    }
+
+    return IRQ_HANDLED;
+}
+
 static int __init pj1_module_init(void) {
     int i;
 
@@ -52,10 +83,57 @@ static int __init pj1_module_init(void) {
 
     return 0;
 }
+
+
+// 타이머 콜백 함수
+static void timer_callback(struct timer_list *t) {
+    static int current_led = 0;
+
+    switch (mod) {
+        case 0:  
+            for(int i=0;i<4;i++){
+                gpio_set_value(led[0], HIGH);
+            }
+            msleep(2000);
+            for(int i=0;i<4;i++){
+                gpio_set_value(led[0], LOW);
+            }
+
+        case 1:  
+            gpio_set_value(led[current_led], HIGH);
+            msleep(2000);  
+            gpio_set_value(led[current_led], LOW);
+            current_led = (current_led + 1) % 4;  
+            break;
+
+        case 2:  // 모드 2: 수동 모드 (스위치 눌 때마다 LED 토글)
+            break;
+    }
+
+    // 타이머 다시 등록
+    mod_timer(&timer, jiffies + msecs_to_jiffies(2000));
+}
+
+
+
+
+
+
 static void pj1_module_exit(void){
 
+    printk(KERN_INFO "Exiting module...\n");
 
-    printk(KERN_INFO"Module exited successfully.\n");
+    // 타이머 삭제
+    del_timer(&timer);
+
+    // GPIO 핀 해제
+    for (int i = 0; i < 4; i++) {
+        gpio_set_value(led[i], LOW);  // LED 끄기
+        gpio_free(led[i]);
+        gpio_free(sw[i]);
+    }
+
+    printk(KERN_INFO "Module exited successfully.\n");
 }
 
 
