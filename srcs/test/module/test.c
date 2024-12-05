@@ -12,6 +12,7 @@
 int led[4] = {23,24,25,1};      //LED GPIO
 int sw[4] = {4,17,27,22};       //스위치 GPIO
 int mod = 0;                    //현재 모드
+int i = 0;                      //반복 횟수수
 static struct timer_list timer; //timer 구조체
 
 // 모드 설명:
@@ -38,7 +39,7 @@ irqreturn_t switch_irq_handler(int irq, void *dev_id) {
             printk(KERN_INFO "Mode changed: (Mode 2)\n");
             break;
         case 3:
-            mod = 0;    // 모드 리셋 (모두 초기화)
+            mod = 3;    // 모드 리셋 (모두 초기화)
             printk(KERN_INFO "Mode changed: (Mode 3)\n");
             break;
     }
@@ -62,11 +63,11 @@ static void timer_callback(struct timer_list *t) {
 
     switch (mod) {
         case 0:  
-            for(int i=0;i<4;i++){
+            for(i=0;i<4;i++){
                 gpio_set_value(led[0], HIGH);
             }
             msleep(2000);
-            for(int i=0;i<4;i++){
+            for(i=0;i<4;i++){
                 gpio_set_value(led[0], LOW);
             }
 
@@ -87,7 +88,6 @@ static void timer_callback(struct timer_list *t) {
 
 
 static int pj1_module_init(void) {
-    int i;
 
     printk(KERN_INFO "Initializing module...\n");
 
@@ -123,14 +123,13 @@ static int pj1_module_init(void) {
 
 
 static void pj1_module_exit(void){
-
     printk(KERN_INFO "Exiting module...\n");
 
     // 타이머 삭제
     del_timer(&timer);
 
     // GPIO 핀 해제
-    for (int i = 0; i < 4; i++) {
+    for (i = 0; i < 4; i++) {
         gpio_set_value(led[i], LOW);  // LED 끄기
         gpio_free(led[i]);
         gpio_free(sw[i]);
