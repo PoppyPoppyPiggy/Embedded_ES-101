@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #define SYSFS_PATH "/sys/kernel/led_control/mode"
 
@@ -10,24 +9,28 @@ void set_mode(int mode) {
         perror("Failed to open sysfs file");
         return;
     }
-    fprintf(file, "%d", mode);
+    fprintf(file, "%d\n", mode);
     fclose(file);
 }
 
 int main() {
     int mode;
-    printf("Mode 1 : 1 (all blink)\n");
-    printf("Mode 2 : 2 (solo blink)\n");
-    printf("Mode 3 : 3 (manual mode)\n");
-    printf("Mode 4 : 4 (reset mode)\n");
+
+    printf("Mode 0: All blink\n");
+    printf("Mode 1: Sequential blink\n");
+    printf("Mode 2: Manual toggle mode\n");
+    printf("Mode 3: Reset mode\n");
+    printf("Enter -1 to turn off LEDs\n");
+
     while (1) {
-        
-        scanf("%d", &mode);
-        if (mode == -1) {
-            printf("Turning off LEDs and stopping timer\n");
+        printf("Enter mode: ");
+        if (scanf("%d", &mode) != 1 || mode < -1 || mode > 3) {
+            printf("Invalid mode! Please enter a value between -1 and 3.\n");
+            while (getchar() != '\n');
+            continue;
         }
         set_mode(mode);
     }
+
     return 0;
 }
-
