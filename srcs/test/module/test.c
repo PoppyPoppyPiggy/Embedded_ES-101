@@ -12,7 +12,6 @@
 int led[4] = {23,24,25,1};      //LED GPIO
 int sw[4] = {4,17,27,22};       //스위치 GPIO
 int mod = 0;                    //현재 모드
-int i = 0;                      //반복 횟수수
 static struct timer_list timer; //timer 구조체
 
 // 모드 설명:
@@ -59,6 +58,7 @@ irqreturn_t switch_irq_handler(int irq, void *dev_id) {
 
 // 타이머 콜백 함수
 static void timer_callback(struct timer_list *t) {
+    int i;
     static int current_led = 0;
 
     switch (mod) {
@@ -88,7 +88,7 @@ static void timer_callback(struct timer_list *t) {
 
 
 static int pj1_module_init(void) {
-
+    int i;
     printk(KERN_INFO "Initializing module...\n");
 
     // LED와 스위치 GPIO 초기화
@@ -113,9 +113,8 @@ static int pj1_module_init(void) {
     }
     // 타이머 설정
     timer_setup(&timer, timer_callback, 0);
+    mod_timer(&timer, jiffies + msecs_to_jiffies(2000)); // 타이머 시작
     // 모드 초기화
-    mod = 3;  
-
     return 0;
 }
 
@@ -123,6 +122,7 @@ static int pj1_module_init(void) {
 
 
 static void pj1_module_exit(void){
+    int i;
     printk(KERN_INFO "Exiting module...\n");
 
     // 타이머 삭제
