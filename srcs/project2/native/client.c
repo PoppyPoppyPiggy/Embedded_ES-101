@@ -16,18 +16,22 @@ void set_mode(int mode) {
 int main() {
     int mode;
 
-    printf("Mode 0: All blink\n");
-    printf("Mode 1: Sequential blink\n");
-    printf("Mode 2: Manual toggle mode\n");
-    printf("Mode -1: Reset mode\n");
+    printf("Mode 1: All blink\n");
+    printf("Mode 2: Sequential blink\n");
+    printf("Mode 3: Manual toggle mode\n");
+    printf("Mode 4: Reset mode\n");
+    printf("Mode 5: Quit\n");
 
     while (1) {
-        printf("Enter mode: ");
-        if (scanf("%d", &mode) != 1 || mode < -1 || mode > 3) {
-            printf("Invalid mode! Please enter a value between -1 and 3.\n");
+        printf("Type a mode: ");
+        if (scanf("%d", &mode) != 1 || mode <= 0 || mode > 5) {
+            printf("Invalid mode! Please enter a value between 1 and 5.\n");
             while (getchar() != '\n');
             continue;
         }
+        else if(mode == 5)
+        {break;}
+        mode--;
         set_mode(mode);
     }
 
