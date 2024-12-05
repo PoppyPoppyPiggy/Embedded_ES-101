@@ -39,7 +39,7 @@ int main() {
         // 0~4 모드 입력값 처리
         if (choice >= 0 && choice <= 4) {
             if (choice == 3) { // Manual LED control
-                 snprintf(buffer, sizeof(buffer), "%d", choice);
+                snprintf(buffer, sizeof(buffer), "%d", choice);
                 ret = write(fd, buffer, strlen(buffer));
                 if (ret < 0) {
                     perror("Failed");
@@ -48,9 +48,14 @@ int main() {
                     printf("개별 LED를 골라주세요 (0-3): ");
                     scanf("%d", &choice);
 
-                    if (choice == 4) // Manual mode 종료
+                    if (choice == 4){ // Manual mode 종료
+                        snprintf(buffer, sizeof(buffer), "%d", choice);
+                        ret = write(fd, buffer, strlen(buffer));
+                        if (ret < 0) {
+                            perror("Failed");
+                        }
                         break;
-
+                    }
                     if (choice >= 0 && choice <= 3) {
                         snprintf(buffer, sizeof(buffer), "%d", choice);
                         ret = write(fd, buffer, strlen(buffer));
