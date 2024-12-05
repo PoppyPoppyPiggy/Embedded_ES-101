@@ -7,12 +7,12 @@
 #define DEVICE_PATH "/dev/led_control"
 
 void print_menu() {
-    printf("\n--- LED Control Program ---\n");
-    printf("1: All LEDs blink\n");
-    printf("2: Sequential LEDs blink\n");
-    printf("3: Manual LED control\n");
-    printf("4: Reset LEDs\n");
-    printf("99: Exit program\n");
+    printf("\n--- Project 2 device + native ---\n");
+    printf("1: 전체 모드\n");
+    printf("2: 개별 모드\n");
+    printf("3: 수동 모드\n");
+    printf("4: 리셋 모드\n");
+    printf("-1: 프로그램 종료\n");
     printf("Enter your choice: ");
 }
 
@@ -27,41 +27,42 @@ int main() {
         return -1;
     }
 
+    print_menu();
     while (1) {
-        print_menu();
+        
         scanf("%d", &choice);
 
-        if (choice == 99) { // 프로그램 종료
-            printf("Exiting program.\n");
+        if (choice == -1) { // 프로그램 종료
+            printf("프로그램을 종료합니다\n");
             break;
         }
 
-        // 0~4 입력값 처리
+        // 0~4 모드 입력값 처리
         if (choice >= 0 && choice <= 4) {
             snprintf(buffer, sizeof(buffer), "%d", choice);
             ret = write(fd, buffer, strlen(buffer));
             if (ret < 0) {
-                perror("Failed to write to device");
+                perror("Failed");
             } else {
-                printf("Command sent: %d\n", choice);
+                printf("LED to enable : %d\n", choice);
             }
         } else if (choice == 3) { // Manual LED control
-            printf("Enter LED number to toggle (0-3): ");
+            printf("개별 LED를 골라주세요 (0-3): ");
             scanf("%d", &choice);
 
             if (choice >= 0 && choice <= 3) {
                 snprintf(buffer, sizeof(buffer), "%d", choice);
                 ret = write(fd, buffer, strlen(buffer));
                 if (ret < 0) {
-                    perror("Failed to toggle LED");
+                    perror("LED 선택 실패");
                 } else {
-                    printf("LED %d toggled.\n", choice);
+                    printf("LED %d 켜졌습니다.\n", choice);
                 }
             } else {
-                printf("Invalid LED number! Please enter 0-3.\n");
+                printf("올바른 번호를 입력해주세요.\n");
             }
         } else {
-            printf("Invalid choice! Please enter 0-4 or 99 to exit.\n");
+            printf("올바른 번호를 입력해주세요.\n");
         }
     }
 
