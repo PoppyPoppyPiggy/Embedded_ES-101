@@ -16,8 +16,12 @@ void set_mode(int mode) {
 
 int main() {
     int mode;
+    printf("Mode 1 : 1 (all blink)\n");
+    printf("Mode 2 : 2 (solo blink)\n");
+    printf("Mode 3 : 3 (manual mode)\n");
+    printf("Mode 4 : 4 (reset mode)\n");
     while (1) {
-        printf("Enter mode (0: Blink, 1: Sequential, 2: Toggle, -1: Off): ");
+        
         scanf("%d", &mode);
         if (mode == -1) {
             printf("Turning off LEDs and stopping timer\n");
