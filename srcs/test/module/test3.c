@@ -45,7 +45,7 @@ irqreturn_t irq_handler(int irq, void *dev_id) {
     switch (irq) {
     case 60: // SW[0]: 모든 LED 깜박임 or 토글 모드에서 LED 0 토글
         printk(KERN_INFO "SW1 interrupt occurred!\n");
-        if (mode == -1) {
+        if (mode == -1 || mode == 1) {
             mode = 0;
             flag = 0;
             mod_timer(&timer, jiffies + HZ * 2);
@@ -57,7 +57,7 @@ irqreturn_t irq_handler(int irq, void *dev_id) {
 
     case 61: // SW[1]: 순차 점등 or 토글 모드에서 LED 1 토글
         printk(KERN_INFO "SW2 interrupt occurred!\n");
-        if (mode == -1) {
+        if (mode == -1 || mode == 0) {
             mode = 1;
             led_index = 0;
             mod_timer(&timer, jiffies + HZ * 2);
