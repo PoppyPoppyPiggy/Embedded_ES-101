@@ -13,7 +13,6 @@ void print_menu() {
     printf("3: 수동 모드\n");
     printf("4: 리셋 모드\n");
     printf("-1: 프로그램 종료\n");
-    printf("Enter your choice: ");
 }
 
 int main() {
@@ -29,7 +28,7 @@ int main() {
 
     print_menu();
     while (1) {
-        
+        printf("모드를 선택해주세요: ");
         scanf("%d", &choice);
 
         if (choice == -1) { // 프로그램 종료
@@ -39,27 +38,37 @@ int main() {
 
         // 0~4 모드 입력값 처리
         if (choice >= 0 && choice <= 4) {
-            snprintf(buffer, sizeof(buffer), "%d", choice);
-            ret = write(fd, buffer, strlen(buffer));
-            if (ret < 0) {
-                perror("Failed");
-            } else {
-                printf("LED to enable : %d\n", choice);
-            }
-        } else if (choice == 3) { // Manual LED control
-            printf("개별 LED를 골라주세요 (0-3): ");
-            scanf("%d", &choice);
+            if (choice == 3) { // Manual LED control
+                 snprintf(buffer, sizeof(buffer), "%d", choice);
+                ret = write(fd, buffer, strlen(buffer));
+                if (ret < 0) {
+                    perror("Failed");
+                }
+                while (1) {
+                    printf("개별 LED를 골라주세요 (0-3): ");
+                    scanf("%d", &choice);
 
-            if (choice >= 0 && choice <= 3) {
+                    if (choice == 4) // Manual mode 종료
+                        break;
+
+                    if (choice >= 0 && choice <= 3) {
+                        snprintf(buffer, sizeof(buffer), "%d", choice);
+                        ret = write(fd, buffer, strlen(buffer));
+                        if (ret < 0) {
+                            perror("LED 선택 실패");
+                        } else {
+                            printf("LED %d 켜졌습니다.\n", choice);
+                        }
+                    } else {
+                        printf("올바른 번호를 입력해주세요.\n");
+                    }
+                }
+            } else { // 다른 모드 선택
                 snprintf(buffer, sizeof(buffer), "%d", choice);
                 ret = write(fd, buffer, strlen(buffer));
                 if (ret < 0) {
-                    perror("LED 선택 실패");
-                } else {
-                    printf("LED %d 켜졌습니다.\n", choice);
+                    perror("Failed");
                 }
-            } else {
-                printf("올바른 번호를 입력해주세요.\n");
             }
         } else {
             printf("올바른 번호를 입력해주세요.\n");
