@@ -64,11 +64,11 @@ static void timer_callback(struct timer_list *t) {
     switch (mod) {
         case 0:  
             for(i=0;i<4;i++){
-                gpio_set_value(led[0], HIGH);
+                gpio_set_value(led[i], HIGH);
             }
             msleep(2000);
             for(i=0;i<4;i++){
-                gpio_set_value(led[0], LOW);
+                gpio_set_value(led[i], LOW);
             }
 
         case 1:  
