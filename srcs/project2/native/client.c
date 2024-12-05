@@ -19,8 +19,7 @@ int main() {
     printf("Mode 0: All blink\n");
     printf("Mode 1: Sequential blink\n");
     printf("Mode 2: Manual toggle mode\n");
-    printf("Mode 3: Reset mode\n");
-    printf("Enter -1 to turn off LEDs\n");
+    printf("Mode -1: Reset mode\n");
 
     while (1) {
         printf("Enter mode: ");
