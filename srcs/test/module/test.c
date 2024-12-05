@@ -26,16 +26,20 @@ irqreturn_t switch_irq_handler(int irq, void *dev_id) {
 
     switch (switch_mod) {
         case 0:
-            mod = 0;  
+            mod = 0;    // 전체 모드  
+            printk(KERN_INFO "Mode changed: (Mode 0)\n");
             break;
         case 1:
-            mod = 1;  // 모드 1으로 전환
+            mod = 1;    // 개별 모드
+            printk(KERN_INFO "Mode changed: (Mode 1)\n");
             break;
         case 2:
-            mod = 2;  // 수동 모드
+            mod = 2;    // 수동 모드
+            printk(KERN_INFO "Mode changed: (Mode 2)\n");
             break;
         case 3:
-            mod = 0;  // 모드 리셋 (모두 초기화)
+            mod = 0;    // 모드 리셋 (모두 초기화)
+            printk(KERN_INFO "Mode changed: (Mode 3)\n");
             break;
     }
 
