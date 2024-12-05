@@ -12,9 +12,10 @@ int sw[4] = {4, 17, 27, 22}; // 스위치 핀 번호
 int led[4] = {23, 24, 25, 1}; // LED 핀 번호
 
 static struct timer_list timer;
-static int mode = -1;       // 동작 모드 (-1: 없음, 0: 모든 LED 깜박임, 1: 순차적으로 LED 점등)
-static int led_index = 0;   // 순차적으로 LED를 점등하기 위한 인덱스
-static int flag = 0;        // LED 토글 상태
+static int mode = -1;        // 동작 모드 (-1: 없음, 0: 모든 LED 깜박임, 1: 순차 점등, 2: 토글 모드)
+static int led_state[4] = {0, 0, 0, 0}; // 각 LED의 상태 저장 (모드 2에서 사용)
+static int flag = 0;         // LED 토글 상태
+static int led_index = 0;    // 순차 점등용 인덱스
 
 // 타이머 콜백 함수
 static void timer_cb(struct timer_list *timer) {
@@ -42,26 +43,43 @@ irqreturn_t irq_handler(int irq, void *dev_id) {
     int i;
 
     switch (irq) {
-    case 60: // SW[0]: 모든 LED 깜박임 시작
+    case 60: // SW[0]: 모든 LED 깜박임 or 토글 모드에서 LED 0 토글
         printk(KERN_INFO "SW1 interrupt occurred!\n");
-        if (mode != 0) {
+        if (mode == -1) {
             mode = 0;
             flag = 0;
             mod_timer(&timer, jiffies + HZ * 2);
+        } else if (mode == 2) {
+            led_state[0] = !led_state[0];
+            gpio_set_value(led[0], led_state[0]);
         }
         break;
 
-    case 61: // SW[1]: 순차적으로 LED 점등 시작
+    case 61: // SW[1]: 순차 점등 or 토글 모드에서 LED 1 토글
         printk(KERN_INFO "SW2 interrupt occurred!\n");
-        if (mode != 1) {
+        if (mode == -1) {
             mode = 1;
             led_index = 0;
             mod_timer(&timer, jiffies + HZ * 2);
+        } else if (mode == 2) {
+            led_state[1] = !led_state[1];
+            gpio_set_value(led[1], led_state[1]);
         }
         break;
 
-    case 62:
+    case 62: // SW[2]: 토글 모드 진입 or 토글 모드에서 LED 2 토글
         printk(KERN_INFO "SW3 interrupt occurred!\n");
+        if (mode != 2) {
+            mode = 2;
+            del_timer(&timer); // 타이머 중지
+            for (i = 0; i < 4; i++) {
+                led_state[i] = 0; // 초기화
+                gpio_set_value(led[i], LOW);
+            }
+        } else {
+            led_state[2] = !led_state[2];
+            gpio_set_value(led[2], led_state[2]);
+        }
         break;
 
     case 63: // SW[3]: 모든 LED 끄기 및 타이머 중지
