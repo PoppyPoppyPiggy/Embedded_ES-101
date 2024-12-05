@@ -32,6 +32,12 @@ int main() {
         scanf("%d", &choice);
 
         if (choice == -1) { // 프로그램 종료
+            choice = 4;
+            snprintf(buffer, sizeof(buffer), "%d", choice);
+            ret = write(fd, buffer, strlen(buffer));
+            if (ret < 0) {
+                perror("Failed");
+            }
             printf("프로그램을 종료합니다\n");
             break;
         }
